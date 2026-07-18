@@ -866,9 +866,10 @@ function createWriter(char, isQuiz) {
   }
 }
 
-// ===== Speech =====
+// ===== Speech (Dual Engine: Web Speech API + Google TTS Fallback) =====
 let voicesReady = false;
 let cachedVoices = [];
+let speechEngine = 'auto';
 
 function loadVoices() {
   if (!('speechSynthesis' in window)) return;
@@ -876,11 +877,9 @@ function loadVoices() {
   if (cachedVoices.length > 0) voicesReady = true;
 }
 
-// Load voices immediately and on change
 if ('speechSynthesis' in window) {
   loadVoices();
   window.speechSynthesis.onvoiceschanged = loadVoices;
-  // Retry loading voices periodically for mobile browsers
   let voiceRetries = 0;
   const voiceInterval = setInterval(() => {
     loadVoices();
@@ -897,38 +896,49 @@ function getChineseVoice() {
     || null;
 }
 
-function speak(text, rate) {
-  if (!('speechSynthesis' in window)) return;
+// Google Translate TTS fallback - works on all mobile browsers
+function speakViaGoogleTTS(text) {
+  const url = 'https://translate.googleapis.com/translate_tts?ie=UTF-8&tl=zh-CN&client=tw-ob&q=' + encodeURIComponent(text);
+  const audio = new Audio(url);
+  audio.volume = 1.0;
+  const p = audio.play();
+  if (p !== undefined) {
+    p.catch(() => { setTimeout(() => { audio.play().catch(() => {}); }, 50); });
+  }
+}
 
-  // Cancel any pending speech
+// Web Speech API engine
+function speakViaWebSpeech(text, rate) {
+  if (!('speechSynthesis' in window)) return false;
+  const voice = getChineseVoice();
+  if (!voice && !voicesReady) return false;
+
   window.speechSynthesis.cancel();
-
-  // Small delay after cancel to ensure clean state on mobile
   setTimeout(() => {
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'zh-CN';
     utterance.rate = rate || 0.8;
     utterance.pitch = 1.1;
     utterance.volume = 1.0;
-
-    const voice = getChineseVoice();
     if (voice) utterance.voice = voice;
-
-    // Mobile fix: resume speech synthesis if paused
-    if (window.speechSynthesis.paused) {
-      window.speechSynthesis.resume();
-    }
+    if (window.speechSynthesis.paused) window.speechSynthesis.resume();
     window.speechSynthesis.speak(utterance);
-
-    // Chrome mobile bug fix: long texts get cut off, use resume workaround
-    const resumeInterval = setInterval(() => {
-      if (!window.speechSynthesis.speaking) {
-        clearInterval(resumeInterval);
-      } else {
-        window.speechSynthesis.resume();
-      }
+    const ri = setInterval(() => {
+      if (!window.speechSynthesis.speaking) clearInterval(ri);
+      else window.speechSynthesis.resume();
     }, 5000);
   }, 100);
+  return true;
+}
+
+// Main speak function - tries Web Speech first, falls back to Google TTS
+function speak(text, rate) {
+  if (speechEngine === 'auto' || speechEngine === 'webspeech') {
+    const success = speakViaWebSpeech(text, rate);
+    if (success) { speechEngine = 'webspeech'; return; }
+    speechEngine = 'googletts';
+  }
+  speakViaGoogleTTS(text);
 }
 
 // Unlock audio on first user interaction (mobile requirement)
@@ -937,11 +947,18 @@ function unlockAudio() {
   if (audioUnlocked) return;
   audioUnlocked = true;
   if ('speechSynthesis' in window) {
-    // Speak empty string to unlock audio context on mobile
     const silent = new SpeechSynthesisUtterance('');
     silent.volume = 0;
     window.speechSynthesis.speak(silent);
   }
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const buf = ctx.createBuffer(1, 1, 22050);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start(0);
+  } catch(e) {}
 }
 document.addEventListener('touchstart', unlockAudio, { once: true });
 document.addEventListener('click', unlockAudio, { once: true });
