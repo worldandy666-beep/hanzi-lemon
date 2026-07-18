@@ -867,27 +867,84 @@ function createWriter(char, isQuiz) {
 }
 
 // ===== Speech =====
+let voicesReady = false;
+let cachedVoices = [];
+
+function loadVoices() {
+  if (!('speechSynthesis' in window)) return;
+  cachedVoices = window.speechSynthesis.getVoices();
+  if (cachedVoices.length > 0) voicesReady = true;
+}
+
+// Load voices immediately and on change
+if ('speechSynthesis' in window) {
+  loadVoices();
+  window.speechSynthesis.onvoiceschanged = loadVoices;
+  // Retry loading voices periodically for mobile browsers
+  let voiceRetries = 0;
+  const voiceInterval = setInterval(() => {
+    loadVoices();
+    voiceRetries++;
+    if (voicesReady || voiceRetries > 10) clearInterval(voiceInterval);
+  }, 300);
+}
+
+function getChineseVoice() {
+  if (cachedVoices.length === 0) cachedVoices = window.speechSynthesis.getVoices();
+  return cachedVoices.find(v => v.lang === 'zh-CN')
+    || cachedVoices.find(v => v.lang.startsWith('zh'))
+    || cachedVoices.find(v => v.lang.includes('CN'))
+    || null;
+}
+
 function speak(text, rate) {
   if (!('speechSynthesis' in window)) return;
+
+  // Cancel any pending speech
   window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'zh-CN';
-  utterance.rate = rate || 0.8;
-  utterance.pitch = 1.1;
 
-  // Try to find a Chinese voice
-  const voices = window.speechSynthesis.getVoices();
-  const zhVoice = voices.find(v => v.lang.startsWith('zh')) || voices.find(v => v.lang.includes('CN'));
-  if (zhVoice) utterance.voice = zhVoice;
+  // Small delay after cancel to ensure clean state on mobile
+  setTimeout(() => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'zh-CN';
+    utterance.rate = rate || 0.8;
+    utterance.pitch = 1.1;
+    utterance.volume = 1.0;
 
-  window.speechSynthesis.speak(utterance);
+    const voice = getChineseVoice();
+    if (voice) utterance.voice = voice;
+
+    // Mobile fix: resume speech synthesis if paused
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
+    window.speechSynthesis.speak(utterance);
+
+    // Chrome mobile bug fix: long texts get cut off, use resume workaround
+    const resumeInterval = setInterval(() => {
+      if (!window.speechSynthesis.speaking) {
+        clearInterval(resumeInterval);
+      } else {
+        window.speechSynthesis.resume();
+      }
+    }, 5000);
+  }, 100);
 }
 
-// Pre-load voices
-if ('speechSynthesis' in window) {
-  window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
-  window.speechSynthesis.getVoices();
+// Unlock audio on first user interaction (mobile requirement)
+let audioUnlocked = false;
+function unlockAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  if ('speechSynthesis' in window) {
+    // Speak empty string to unlock audio context on mobile
+    const silent = new SpeechSynthesisUtterance('');
+    silent.volume = 0;
+    window.speechSynthesis.speak(silent);
+  }
 }
+document.addEventListener('touchstart', unlockAudio, { once: true });
+document.addEventListener('click', unlockAudio, { once: true });
 
 // ===== Mode Switching =====
 function switchToPractice() {
