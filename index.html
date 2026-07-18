@@ -893,7 +893,7 @@ function updateDebugPanel() {
   const hasSynth = 'speechSynthesis' in window;
   let info = 'speechSynthesis: ' + hasSynth + '\n';
   info += 'audioCtx: ' + (audioCtx ? audioCtx.state : 'null') + '\n';
-  info += 'engine: baidu -> youdao -> webspeech\n';
+  info += 'engine: local -> baidu -> webspeech\n';
   info += '---log---\n' + debugLog.join('\n');
   el.textContent = info;
 }
@@ -917,7 +917,6 @@ function unlockAudio() {
   } catch(e) {
     addDebug('AudioContext error: ' + e.message);
   }
-  // Also create persistent audio element
   if (!persistentAudio) {
     persistentAudio = document.createElement('audio');
     persistentAudio.preload = 'auto';
@@ -929,74 +928,80 @@ document.addEventListener('touchstart', unlockAudio, { passive: true });
 document.addEventListener('click', unlockAudio);
 document.addEventListener('keydown', unlockAudio);
 
-// --- Engine 1: Baidu Translate TTS (works in China) ---
-function speakViaBaidu(text) {
-  const url = 'https://fanyi.baidu.com/gettts?lan=zh&text=' + encodeURIComponent(text) + '&spd=3&source=web';
-  addDebug('Trying Baidu TTS...');
-  if (persistentAudio) {
-    persistentAudio.src = url;
-    persistentAudio.volume = 1.0;
-    const p = persistentAudio.play();
-    if (p) p.then(() => addDebug('Baidu TTS OK')).catch(() => {
-      addDebug('Baidu play failed, trying Youdao...');
-      speakViaYoudao(text);
-    });
-  } else {
+// --- Pre-generated audio map ---
+const CHARS_WITH_AUDIO = ['一','二','三','四','五','六','七','八','九','十','大','小','上','下','人','口','手','足','日','月','水','火','山','石','田','土','木','花','左','右'];
+
+// --- Engine 1: Local audio files (most reliable on mobile) ---
+function playLocalAudio(url) {
+  addDebug('Playing local: ' + url);
+  return new Promise((resolve, reject) => {
     const a = new Audio(url);
     a.volume = 1.0;
-    a.play().then(() => addDebug('Baidu TTS OK')).catch(() => {
-      addDebug('Baidu failed, trying Youdao...');
-      speakViaYoudao(text);
-    });
-  }
-}
-
-// --- Engine 2: Youdao Dict TTS (works in China) ---
-function speakViaYoudao(text) {
-  const url = 'https://dict.youdao.com/dictvoice?audio=' + encodeURIComponent(text) + '&type=1';
-  addDebug('Trying Youdao TTS...');
-  const a = new Audio(url);
-  a.volume = 1.0;
-  a.play().then(() => addDebug('Youdao TTS OK')).catch(() => {
-    addDebug('Youdao failed, trying Web Speech...');
-    speakViaWebSpeech(text, 0.8);
+    a.preload = 'auto';
+    const playPromise = a.play();
+    if (playPromise) {
+      playPromise.then(() => {
+        addDebug('Local OK: ' + url);
+        a.onended = () => resolve();
+        setTimeout(() => resolve(), 5000);
+      }).catch((e) => {
+        addDebug('Local failed: ' + e.message);
+        reject(e);
+      });
+    } else {
+      reject(new Error('no promise'));
+    }
   });
 }
 
-// --- Engine 3: Web Speech API (if available) ---
+// --- Engine 2: Baidu TTS fallback ---
+function speakViaBaidu(text) {
+  const url = 'https://fanyi.baidu.com/gettts?lan=zh&text=' + encodeURIComponent(text) + '&spd=3&source=web';
+  addDebug('Baidu TTS fallback...');
+  const a = new Audio(url);
+  a.volume = 1.0;
+  const p = a.play();
+  if (p) p.then(() => addDebug('Baidu OK')).catch(() => addDebug('Baidu failed too'));
+}
+
+// --- Engine 3: Web Speech API (last resort) ---
 function speakViaWebSpeech(text, rate) {
-  if (!('speechSynthesis' in window)) {
-    addDebug('No speechSynthesis support');
-    return false;
-  }
+  if (!('speechSynthesis' in window)) { addDebug('No speechSynthesis'); return; }
   window.speechSynthesis.cancel();
   const voices = window.speechSynthesis.getVoices();
-  const voice = voices.find(v => v.lang === 'zh-CN')
-    || voices.find(v => v.lang.startsWith('zh'))
-    || voices[0] || null;
-  if (!voice) {
-    addDebug('No voice available');
-    return false;
-  }
-  addDebug('Web Speech: ' + voice.name + ' (' + voice.lang + ')');
-  setTimeout(() => {
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = voice.lang;
-    u.rate = rate || 0.8;
-    u.pitch = 1.1;
-    u.volume = 1.0;
-    u.voice = voice;
-    u.onend = () => addDebug('Speech ended OK');
-    u.onerror = (e) => addDebug('Speech error: ' + e.error);
-    window.speechSynthesis.speak(u);
-  }, 50);
-  return true;
+  const voice = voices.find(v => v.lang === 'zh-CN') || voices.find(v => v.lang.startsWith('zh')) || voices[0];
+  if (!voice) { addDebug('No voice'); return; }
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = voice.lang; u.rate = rate || 0.8; u.volume = 1.0; u.voice = voice;
+  window.speechSynthesis.speak(u);
 }
 
 // --- Main speak function ---
 function speak(text, rate) {
   addDebug('speak(): "' + text.substring(0, 20) + '"');
   unlockAudio();
+
+  // Single character with local audio
+  if (text.length === 1 && CHARS_WITH_AUDIO.includes(text)) {
+    playLocalAudio('audio/' + text + '.mp3').catch(() => speakViaBaidu(text));
+    return;
+  }
+  // Praise phrase
+  if (text.includes('太棒了') || text.includes('你太棒')) {
+    playLocalAudio('audio/praise.mp3').catch(() => speakViaBaidu(text));
+    return;
+  }
+  // Encouragement phrase
+  if (text.includes('加油')) {
+    playLocalAudio('audio/encourage.mp3').catch(() => speakViaBaidu(text));
+    return;
+  }
+  // Longer text starting with a known character - play character audio
+  if (text.length > 1 && CHARS_WITH_AUDIO.includes(text[0])) {
+    playLocalAudio('audio/' + text[0] + '.mp3').catch(() => speakViaBaidu(text));
+    return;
+  }
+  // Default: Baidu TTS
   speakViaBaidu(text);
 }
 
@@ -1016,7 +1021,7 @@ document.querySelector('.app-title').addEventListener('click', () => {
 document.getElementById('debug-test-btn').addEventListener('click', () => {
   addDebug('--- TEST BUTTON ---');
   unlockAudio();
-  speak('你好', 0.8);
+  speak('一', 0.8);
 });
 setTimeout(updateDebugPanel, 3000);
 
