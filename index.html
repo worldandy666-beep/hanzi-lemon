@@ -608,6 +608,166 @@ body::before {
 
 .deco-dot:nth-child(2) { background: var(--kids-primary); opacity: 0.4; }
 .deco-dot:nth-child(3) { background: var(--kids-focus); opacity: 0.5; }
+
+/* ===== Character Library Panel ===== */
+.lib-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: rgba(0,0,0,0.4);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.lib-overlay.active { display: flex; }
+
+.lib-panel {
+  background: var(--kids-cream);
+  border-radius: var(--seed-radius);
+  width: 100%;
+  max-width: 500px;
+  max-height: 85vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+}
+
+.lib-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 2px solid var(--kids-secondary);
+}
+.lib-header h2 {
+  font: 700 18px/1.2 'Noto Sans SC', sans-serif;
+  color: var(--kids-title);
+  margin: 0;
+}
+.lib-close {
+  background: var(--kids-danger);
+  color: #fff;
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 16px;
+  cursor: pointer;
+  box-shadow: 0 3px 0 #B84444;
+}
+
+.lib-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.lib-char-card {
+  position: relative;
+  background: var(--kids-card);
+  border-radius: 12px;
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font: 700 24px/1 'Noto Sans SC', sans-serif;
+  color: var(--kids-text);
+  cursor: default;
+  box-shadow: 0 2px 0 var(--kids-input-shadow);
+}
+.lib-char-card .lib-pinyin {
+  font: 500 10px/1 'Nunito', sans-serif;
+  color: var(--kids-muted);
+  margin-top: 2px;
+}
+.lib-char-card .lib-del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--kids-danger);
+  color: #fff;
+  border: none;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0.7;
+  padding: 0;
+}
+.lib-char-card .lib-del:hover { opacity: 1; }
+.lib-char-card.has-audio::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--kids-success);
+}
+
+.lib-footer {
+  padding: 12px 20px 16px;
+  border-top: 2px solid var(--kids-secondary);
+}
+.lib-add-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.lib-add-form input {
+  flex: 1;
+  height: 40px;
+  border: 2px solid var(--kids-input-shadow);
+  border-radius: 10px;
+  padding: 0 10px;
+  font: 600 15px/1 'Noto Sans SC', sans-serif;
+  background: #fff;
+  color: var(--kids-text);
+  outline: none;
+}
+.lib-add-form input:focus { border-color: var(--kids-primary); }
+.lib-add-form input::placeholder { color: var(--kids-disabled); }
+.lib-add-btn {
+  height: 40px;
+  padding: 0 14px;
+  background: var(--kids-primary);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font: 700 14px/1 'Noto Sans SC', sans-serif;
+  cursor: pointer;
+  box-shadow: 0 3px 0 var(--kids-primary-active);
+  white-space: nowrap;
+}
+.lib-add-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--kids-primary-active); }
+.lib-count {
+  font: 500 12px/1 'Noto Sans SC', sans-serif;
+  color: var(--kids-muted);
+  margin-bottom: 8px;
+}
+
+/* ===== Library Button in Header ===== */
+.btn-lib {
+  background: var(--kids-focus);
+  color: var(--kids-title);
+  border: none;
+  padding: 6px 12px;
+  border-radius: 12px;
+  font: 700 13px/1 'Noto Sans SC', sans-serif;
+  cursor: pointer;
+  box-shadow: 0 3px 0 var(--kids-focus-shadow);
+  margin-left: 8px;
+}
+.btn-lib:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--kids-focus-shadow); }
 </style>
 </head>
 <body>
@@ -629,6 +789,7 @@ body::before {
   <div class="progress-badge">
     <span class="current-num" id="progress-current">1</span> / <span id="progress-total">30</span>
   </div>
+  <button class="btn-lib" id="btn-lib" title="管理字库">字库</button>
 </header>
 
 <!-- Debug Panel (temporary, for sound troubleshooting) -->
@@ -732,7 +893,7 @@ const COLORS = {
 };
 
 // ===== Character Data =====
-const CHARACTERS = [
+const DEFAULT_CHARACTERS = [
   { char: '一', pinyin: 'yī', words: ['一个', '一起', '一天'] },
   { char: '二', pinyin: 'èr', words: ['二月', '第二', '两个'] },
   { char: '三', pinyin: 'sān', words: ['三个', '三天', '第三'] },
@@ -764,6 +925,20 @@ const CHARACTERS = [
   { char: '左', pinyin: 'zuǒ', words: ['左右', '左边', '左手'] },
   { char: '右', pinyin: 'yòu', words: ['左右', '右边', '右手'] }
 ];
+
+// Load character library from localStorage, or use defaults
+let CHARACTERS;
+try {
+  const saved = localStorage.getItem('hanzi_library');
+  CHARACTERS = saved ? JSON.parse(saved) : null;
+  if (!Array.isArray(CHARACTERS) || CHARACTERS.length === 0) CHARACTERS = DEFAULT_CHARACTERS.slice();
+} catch(e) {
+  CHARACTERS = DEFAULT_CHARACTERS.slice();
+}
+
+function saveLibrary() {
+  try { localStorage.setItem('hanzi_library', JSON.stringify(CHARACTERS)); } catch(e) {}
+}
 
 // ===== State =====
 let currentIndex = 0;
@@ -1097,7 +1272,8 @@ function showCelebration() {
   quizCompleted = true;
   celebOverlay.classList.add('active');
 
-  // Speak encouragement
+  // Play cheer sound effect first, then praise speech
+  playLocalAudio('audio/cheer.wav').catch(() => {});
   speak('小豆豆 你太棒了！', 0.9);
 
   // Start particle animation
@@ -1112,6 +1288,7 @@ function hideCelebration() {
 // ===== Retry Toast =====
 function showRetryToast() {
   retryToast.classList.add('show');
+  playLocalAudio('audio/encourage_fx.wav').catch(() => {});
   speak('小豆豆 加油啊', 0.9);
   setTimeout(() => {
     retryToast.classList.remove('show');
@@ -1283,11 +1460,113 @@ window.addEventListener('resize', () => {
   }, 300);
 });
 
+// ===== Character Library Management =====
+function renderLibGrid() {
+  const grid = document.getElementById('lib-grid');
+  grid.innerHTML = '';
+  CHARACTERS.forEach((item, idx) => {
+    const card = document.createElement('div');
+    card.className = 'lib-char-card' + (CHARS_WITH_AUDIO.includes(item.char) ? ' has-audio' : '');
+    card.innerHTML = '<span>' + item.char + '</span>'
+      + '<span class="lib-pinyin">' + item.pinyin + '</span>'
+      + '<button class="lib-del" data-idx="' + idx + '">×</button>';
+    grid.appendChild(card);
+  });
+  grid.querySelectorAll('.lib-del').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeCharacter(parseInt(btn.dataset.idx));
+    });
+  });
+  document.getElementById('lib-count').textContent = '共 ' + CHARACTERS.length + ' 个汉字';
+}
+
+function addCharacter(ch) {
+  if (CHARACTERS.some(c => c.char === ch)) return false;
+  CHARACTERS.push({ char: ch, pinyin: '', words: [ch] });
+  saveLibrary();
+  renderLibGrid();
+  progressTotal.textContent = CHARACTERS.length;
+  return true;
+}
+
+function removeCharacter(idx) {
+  if (idx < 0 || idx >= CHARACTERS.length) return;
+  CHARACTERS.splice(idx, 1);
+  saveLibrary();
+  renderLibGrid();
+  progressTotal.textContent = CHARACTERS.length;
+  if (currentIndex >= CHARACTERS.length) {
+    loadCharacter(Math.max(0, CHARACTERS.length - 1));
+  } else if (currentIndex === idx) {
+    loadCharacter(Math.min(idx, CHARACTERS.length - 1));
+  }
+}
+
+function resetLibrary() {
+  CHARACTERS = DEFAULT_CHARACTERS.slice();
+  saveLibrary();
+  renderLibGrid();
+  progressTotal.textContent = CHARACTERS.length;
+  loadCharacter(0);
+}
+
+// Library panel event listeners
+document.getElementById('btn-lib').addEventListener('click', () => {
+  renderLibGrid();
+  document.getElementById('lib-overlay').classList.add('active');
+});
+document.getElementById('lib-close').addEventListener('click', () => {
+  document.getElementById('lib-overlay').classList.remove('active');
+});
+document.getElementById('lib-overlay').addEventListener('click', (e) => {
+  if (e.target.id === 'lib-overlay') {
+    document.getElementById('lib-overlay').classList.remove('active');
+  }
+});
+document.getElementById('lib-add-btn').addEventListener('click', () => {
+  const input = document.getElementById('lib-input');
+  const ch = input.value.trim();
+  if (ch && ch.length === 1 && /[\u4e00-\u9fff]/.test(ch)) {
+    if (addCharacter(ch)) {
+      input.value = '';
+    } else {
+      input.value = '';
+      input.placeholder = '已存在！';
+      setTimeout(() => { input.placeholder = '输入汉字，如：鸟'; }, 1500);
+    }
+  } else {
+    input.placeholder = '请输入一个汉字';
+    setTimeout(() => { input.placeholder = '输入汉字，如：鸟'; }, 1500);
+  }
+});
+document.getElementById('lib-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('lib-add-btn').click();
+});
+
 // ===== Start =====
 window.addEventListener('load', () => {
   // Wait a moment for hanzi-writer data to be available
   setTimeout(init, 500);
 });
 </script>
+<!-- Character Library Panel -->
+<div class="lib-overlay" id="lib-overlay">
+  <div class="lib-panel">
+    <div class="lib-header">
+      <h2>字库管理</h2>
+      <button class="lib-close" id="lib-close">×</button>
+    </div>
+    <div class="lib-grid" id="lib-grid"></div>
+    <div class="lib-footer">
+      <div class="lib-count" id="lib-count"></div>
+      <div class="lib-add-form">
+        <input type="text" id="lib-input" placeholder="输入汉字，如：鸟" maxlength="1">
+        <button class="lib-add-btn" id="lib-add-btn">添加</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
