@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="canvas:aspect-ratio" content="4:3">
+<title>小小汉字乐园</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&family=Noto+Sans+SC:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/hanzi-writer@3.5/dist/hanzi-writer.min.js"></script>
+<style>
+/* ===== Design Tokens (Cozy Kids) ===== */
+:root {
+  --seed-bg: #F8F8F0;
+  --seed-fg: #725D42;
+  --seed-primary: #19C8B9;
+  --seed-accent: #FFCC00;
+  --seed-surface: #F7F3DF;
+  --seed-radius: 20px;
+  --char-display-size: 96px;
+
+  --kids-cream: var(--seed-bg);
+  --kids-card: var(--seed-surface);
+  --kids-secondary: #F0E8D8;
+  --kids-title: #794F27;
+  --kids-text: var(--seed-fg);
+  --kids-muted: #9F927D;
+  --kids-disabled: #C4B89E;
+  --kids-primary: var(--seed-primary);
+  --kids-primary-hover: #3DD4C6;
+  --kids-primary-active: #11A89B;
+  --kids-primary-wash: #E6F9F6;
+  --kids-focus: var(--seed-accent);
+  --kids-focus-shadow: #E0B800;
+  --kids-success: #6FBA2C;
+  --kids-success-shadow: #5A9E1E;
+  --kids-warning: #F5C31C;
+  --kids-danger: #E05A5A;
+  --kids-button-shadow: #BDAEA0;
+  --kids-input-shadow: #D4C9B4;
+  --kids-white: #FFFFFF;
+  --kids-focus-hover: #FFD633;
+  --kids-bg-overlay: rgba(248, 248, 240, 0.75);
+  --kids-primary-border: rgba(25, 200, 185, 0.25);
+  --kids-glow-primary: rgba(25, 200, 185, 0.06);
+  --kids-glow-accent: rgba(255, 204, 0, 0.06);
+  --kids-glow-success: rgba(111, 186, 44, 0.05);
+  --kids-card-shadow: rgba(107, 92, 66, 0.12);
+
+  --radius-control: 50px;
+  --radius-control-small: 12px;
+  --radius-card: var(--seed-radius);
+  --radius-panel: 24px;
+  --shadow-button-rest: 0 5px 0 0 var(--kids-button-shadow);
+  --shadow-button-hover: 0 6px 0 0 var(--kids-button-shadow);
+  --shadow-button-active: 0 1px 0 0 var(--kids-button-shadow);
+  --shadow-card: 0 4px 10px var(--kids-card-shadow);
+  --motion-fast: 0.15s;
+  --motion-base: 0.25s;
+  --motion-slow: 0.35s;
+  --motion-ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ===== Reset & Base ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body {
+  font-family: 'Nunito', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  background: var(--kids-cream);
+  color: var(--kids-text);
+  font-weight: 500;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+
+/* ===== Decorative Background ===== */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background:
+    radial-gradient(ellipse 120px 80px at 8% 15%, var(--kids-glow-primary) 0%, transparent 70%),
+    radial-gradient(ellipse 100px 100px at 92% 80%, var(--kids-glow-accent) 0%, transparent 70%),
+    radial-gradient(ellipse 80px 60px at 50% 95%, var(--kids-glow-success) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ===== Header ===== */
+.header {
+  width: 100%;
+  max-width: 800px;
+  padding: 16px 24px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+}
+
+.app-title {
+  font-family: 'Nunito', 'Noto Sans SC', sans-serif;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--kids-title);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-title .star-icon {
+  display: inline-block;
+  width: 26px;
+  height: 26px;
+}
+
+.progress-badge {
+  background: var(--kids-card);
+  border: 2.5px solid var(--kids-input-shadow);
+  border-radius: var(--radius-control);
+  padding: 6px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--kids-muted);
+  box-shadow: 0 3px 0 0 var(--kids-input-shadow);
+}
+
+.progress-badge .current-num {
+  color: var(--kids-primary);
+  font-weight: 800;
+}
+
+/* ===== Main Content ===== */
+.main-content {
+  flex: 1;
+  width: 100%;
+  max-width: 800px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 20px;
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+}
+
+/* ===== Character Display Area ===== */
+.char-display {
+  text-align: center;
+  padding: 12px 0 8px;
+  flex-shrink: 0;
+}
+
+.char-main {
+  font-family: 'Noto Sans SC', sans-serif;
+  font-size: var(--char-display-size);
+  font-weight: 900;
+  color: var(--kids-title);
+  line-height: 1.1;
+  cursor: pointer;
+  transition: transform var(--motion-base) var(--motion-ease);
+  display: inline-block;
+}
+
+.char-main:hover {
+  transform: scale(1.05);
+}
+
+.char-main:active {
+  transform: scale(0.97);
+}
+
+.char-pinyin {
+  font-family: 'Nunito', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--kids-primary);
+  margin-top: 2px;
+  letter-spacing: 0.02em;
+}
+
+.char-words {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.word-chip {
+  background: var(--kids-primary-wash);
+  border: 2px solid var(--kids-primary-border);
+  border-radius: var(--radius-control);
+  padding: 4px 16px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--kids-primary-active);
+}
+
+.sound-hint {
+  font-size: 12px;
+  color: var(--kids-muted);
+  margin-top: 6px;
+  font-weight: 500;
+}
+
+/* ===== Action Area (Animation & Practice) ===== */
+.action-area {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  min-height: 0;
+}
+
+.action-card {
+  background: var(--kids-card);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-card);
+  width: 100%;
+  max-width: 380px;
+  aspect-ratio: 1;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.action-card .writer-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.action-card .writer-container svg {
+  max-width: 90%;
+  max-height: 90%;
+}
+
+/* Mode label */
+.mode-label {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--kids-secondary);
+  border-radius: var(--radius-control);
+  padding: 4px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--kids-muted);
+  z-index: 2;
+}
+
+.mode-label.active-practice {
+  background: var(--kids-primary-wash);
+  color: var(--kids-primary-active);
+}
+
+/* Replay button */
+.replay-btn {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--kids-primary);
+  color: var(--kids-white);
+  border: none;
+  cursor: pointer;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-button-rest);
+  transition: all var(--motion-fast) var(--motion-ease);
+  z-index: 2;
+}
+
+.replay-btn:hover {
+  background: var(--kids-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-button-hover);
+}
+
+.replay-btn:active {
+  transform: translateY(2px);
+  box-shadow: var(--shadow-button-active);
+}
+
+/* ===== Bottom Controls ===== */
+.bottom-controls {
+  width: 100%;
+  max-width: 800px;
+  padding: 12px 20px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.btn {
+  border: none;
+  cursor: pointer;
+  font-family: 'Nunito', 'Noto Sans SC', sans-serif;
+  font-weight: 700;
+  transition: all var(--motion-fast) var(--motion-ease);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--kids-primary);
+  outline-offset: 2px;
+}
+
+/* Nav buttons */
+.btn-nav {
+  height: 52px;
+  padding: 0 22px;
+  font-size: 15px;
+  border-radius: var(--radius-control);
+  background: var(--kids-card);
+  color: var(--kids-text);
+  border: 2.5px solid var(--kids-input-shadow);
+  box-shadow: var(--shadow-button-rest);
+}
+
+.btn-nav:hover {
+  background: var(--kids-secondary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-button-hover);
+}
+
+.btn-nav:active {
+  transform: translateY(2px);
+  box-shadow: var(--shadow-button-active);
+}
+
+.btn-nav:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: 0 3px 0 0 var(--kids-input-shadow);
+}
+
+/* Primary action buttons */
+.btn-primary {
+  height: 52px;
+  padding: 0 28px;
+  font-size: 16px;
+  border-radius: var(--radius-control);
+  background: var(--kids-primary);
+  color: var(--kids-white);
+  box-shadow: var(--shadow-button-rest);
+}
+
+.btn-primary:hover {
+  background: var(--kids-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-button-hover);
+}
+
+.btn-primary:active {
+  background: var(--kids-primary-active);
+  transform: translateY(2px);
+  box-shadow: var(--shadow-button-active);
+}
+
+/* Sound button */
+.btn-sound {
+  height: 52px;
+  padding: 0 22px;
+  font-size: 15px;
+  border-radius: var(--radius-control);
+  background: var(--kids-focus);
+  color: var(--kids-title);
+  box-shadow: 0 5px 0 0 var(--kids-focus-shadow);
+}
+
+.btn-sound:hover {
+  background: var(--kids-focus-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 0 0 var(--kids-focus-shadow);
+}
+
+.btn-sound:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 0 var(--kids-focus-shadow);
+}
+
+/* ===== Celebration Overlay ===== */
+.celebration-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--motion-base) var(--motion-ease);
+}
+
+.celebration-overlay.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.celebration-overlay .bg-dim {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--kids-bg-overlay);
+}
+
+.celebration-content {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+}
+
+.celebration-emoji {
+  font-size: 80px;
+  animation: celebBounce 0.6s var(--motion-ease) both;
+}
+
+.celebration-text {
+  font-family: 'Nunito', 'Noto Sans SC', sans-serif;
+  font-size: 32px;
+  font-weight: 900;
+  color: var(--kids-title);
+  margin-top: 12px;
+  animation: celebFadeUp 0.5s var(--motion-ease) 0.2s both;
+}
+
+.celebration-sub {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--kids-muted);
+  margin-top: 8px;
+  animation: celebFadeUp 0.5s var(--motion-ease) 0.35s both;
+}
+
+.celebration-next-btn {
+  margin-top: 24px;
+  animation: celebFadeUp 0.5s var(--motion-ease) 0.5s both;
+  pointer-events: auto;
+}
+
+/* Retry toast */
+.retry-toast {
+  position: fixed;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--kids-card);
+  border: 2.5px solid var(--kids-input-shadow);
+  border-radius: var(--radius-control);
+  padding: 12px 28px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--kids-text);
+  box-shadow: var(--shadow-card);
+  opacity: 0;
+  transition: all var(--motion-slow) var(--motion-ease);
+  z-index: 90;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.retry-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ===== Canvas for celebration particles ===== */
+#celeb-canvas {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 101;
+}
+
+/* ===== Animations ===== */
+@keyframes celebBounce {
+  0% { transform: scale(0.3); opacity: 0; }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes celebFadeUp {
+  0% { transform: translateY(16px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes gentlePulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 600px) {
+  .header { padding: 12px 16px 6px; }
+  .app-title { font-size: 18px; }
+  .app-title .star-icon { width: 22px; height: 22px; }
+  .progress-badge { font-size: 12px; padding: 4px 14px; }
+  .char-main { font-size: 72px; }
+  .char-pinyin { font-size: 18px; }
+  .word-chip { font-size: 14px; padding: 3px 12px; }
+  .action-card { max-width: 300px; }
+  .bottom-controls { gap: 8px; padding: 10px 16px 16px; }
+  .btn-nav, .btn-primary, .btn-sound { height: 48px; font-size: 14px; padding: 0 16px; }
+  .celebration-text { font-size: 26px; }
+}
+
+@media (min-width: 601px) and (max-width: 1024px) {
+  .char-main { font-size: 88px; }
+}
+
+@media (min-height: 900px) {
+  .char-display { padding: 20px 0 12px; }
+  .action-card { max-width: 420px; }
+}
+
+/* ===== Reduced Motion ===== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ===== Loading State ===== */
+.loading-screen {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--kids-cream);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  transition: opacity 0.4s ease;
+}
+
+.loading-screen.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loading-char {
+  font-family: 'Noto Sans SC', sans-serif;
+  font-size: 64px;
+  font-weight: 900;
+  color: var(--kids-title);
+  animation: gentlePulse 1.2s ease infinite;
+}
+
+.loading-text {
+  margin-top: 16px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--kids-muted);
+}
+
+/* ===== Decorative dots ===== */
+.deco-dots {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.deco-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--kids-input-shadow);
+}
+
+.deco-dot:nth-child(2) { background: var(--kids-primary); opacity: 0.4; }
+.deco-dot:nth-child(3) { background: var(--kids-focus); opacity: 0.5; }
+</style>
+</head>
+<body>
+
+<!-- Loading Screen -->
+<div class="loading-screen" id="loading-screen">
+  <div class="loading-char">字</div>
+  <div class="loading-text">小小汉字乐园准备中...</div>
+</div>
+
+<!-- Header -->
+<header class="header" data-component="app-header">
+  <div class="app-title">
+    <svg class="star-icon" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M13 2L15.8 9.2L23.5 9.8L17.6 14.8L19.4 22.3L13 18.2L6.6 22.3L8.4 14.8L2.5 9.8L10.2 9.2L13 2Z" style="fill: var(--kids-focus); stroke: var(--kids-focus-shadow); stroke-width: 1.5; stroke-linejoin: round;"/>
+    </svg>
+    小小汉字乐园
+  </div>
+  <div class="progress-badge">
+    <span class="current-num" id="progress-current">1</span> / <span id="progress-total">30</span>
+  </div>
+</header>
+
+<!-- Main Content -->
+<main class="main-content" data-component="main-learning">
+  <!-- Character Display -->
+  <section class="char-display" data-component="character-display">
+    <div class="char-main" id="char-main" role="button" tabindex="0" aria-label="点击听发音">一</div>
+    <div class="char-pinyin" id="char-pinyin">yī</div>
+    <div class="char-words" id="char-words">
+      <span class="word-chip">一个</span>
+      <span class="word-chip">一起</span>
+      <span class="word-chip">一天</span>
+    </div>
+    <div class="sound-hint">点击汉字听发音</div>
+    <div class="deco-dots">
+      <span class="deco-dot"></span>
+      <span class="deco-dot"></span>
+      <span class="deco-dot"></span>
+    </div>
+  </section>
+
+  <!-- Action Area -->
+  <section class="action-area" data-component="stroke-practice">
+    <div class="action-card" id="action-card">
+      <div class="mode-label" id="mode-label">看笔画</div>
+      <div class="writer-container" id="writer-container"></div>
+      <button class="replay-btn" id="replay-btn" aria-label="重新播放" title="重新播放">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="1 4 1 10 7 10"></polyline>
+          <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+        </svg>
+      </button>
+    </div>
+  </section>
+</main>
+
+<!-- Bottom Controls -->
+<nav class="bottom-controls" data-component="bottom-controls">
+  <button class="btn btn-nav" id="btn-prev" aria-label="上一个字">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    上一个
+  </button>
+  <button class="btn btn-sound" id="btn-sound" aria-label="听发音">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+    听一听
+  </button>
+  <button class="btn btn-primary" id="btn-mode" aria-label="切换模式">
+    我来写
+  </button>
+  <button class="btn btn-nav" id="btn-next" aria-label="下一个字">
+    下一个
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+  </button>
+</nav>
+
+<!-- Celebration Overlay -->
+<div class="celebration-overlay" id="celebration-overlay" data-component="celebration-overlay">
+  <div class="bg-dim"></div>
+  <div class="celebration-content">
+    <div class="celebration-emoji" id="celeb-emoji">&#127881;</div>
+    <div class="celebration-text" id="celeb-text">小豆豆 你太棒了！</div>
+    <div class="celebration-sub" id="celeb-sub">又学会了一个字！</div>
+    <button class="btn btn-primary celebration-next-btn" id="celeb-next-btn">
+      继续学习
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+    </button>
+  </div>
+</div>
+
+<!-- Retry Toast -->
+<div class="retry-toast" id="retry-toast">小豆豆 加油啊 我们再来一遍~</div>
+
+<!-- Celebration Particles Canvas -->
+<canvas id="celeb-canvas"></canvas>
+
+<script>
+// ===== Design Token Colors (mirrors CSS :root tokens) =====
+const COLORS = {
+  title: '#794F27',
+  text: '#725D42',
+  primary: '#19C8B9',
+  inputShadow: '#D4C9B4',
+  focus: '#FFCC00',
+  success: '#6FBA2C',
+  pink: '#F8A6B2',
+  purple: '#B77DEE',
+  blue: '#889DF0',
+  orange: '#E59266',
+  red: '#FC736D',
+  white: '#FFFFFF'
+};
+
+// ===== Character Data =====
+const CHARACTERS = [
+  { char: '一', pinyin: 'yī', words: ['一个', '一起', '一天'] },
+  { char: '二', pinyin: 'èr', words: ['二月', '第二', '两个'] },
+  { char: '三', pinyin: 'sān', words: ['三个', '三天', '第三'] },
+  { char: '四', pinyin: 'sì', words: ['四个', '四季', '四方'] },
+  { char: '五', pinyin: 'wǔ', words: ['五个', '五天', '五颜六色'] },
+  { char: '六', pinyin: 'liù', words: ['六个', '六月', '六一'] },
+  { char: '七', pinyin: 'qī', words: ['七个', '七天', '七色'] },
+  { char: '八', pinyin: 'bā', words: ['八个', '八月', '八方'] },
+  { char: '九', pinyin: 'jiǔ', words: ['九个', '九天', '九州'] },
+  { char: '十', pinyin: 'shí', words: ['十个', '十天', '十分'] },
+  { char: '大', pinyin: 'dà', words: ['大家', '大小', '大人'] },
+  { char: '小', pinyin: 'xiǎo', words: ['小鸟', '大小', '小心'] },
+  { char: '上', pinyin: 'shàng', words: ['上面', '上学', '上去'] },
+  { char: '下', pinyin: 'xià', words: ['下面', '下雨', '下去'] },
+  { char: '人', pinyin: 'rén', words: ['人们', '大人', '人口'] },
+  { char: '口', pinyin: 'kǒu', words: ['开口', '口水', '人口'] },
+  { char: '手', pinyin: 'shǒu', words: ['小手', '手心', '手心'] },
+  { char: '足', pinyin: 'zú', words: ['手足', '足球', '双足'] },
+  { char: '日', pinyin: 'rì', words: ['日子', '日月', '生日'] },
+  { char: '月', pinyin: 'yuè', words: ['月亮', '月光', '日月'] },
+  { char: '水', pinyin: 'shuǐ', words: ['水果', '口水', '山水'] },
+  { char: '火', pinyin: 'huǒ', words: ['火车', '大火', '火山'] },
+  { char: '山', pinyin: 'shān', words: ['山水', '大山', '山上'] },
+  { char: '石', pinyin: 'shí', words: ['石头', '石子', '玉石'] },
+  { char: '田', pinyin: 'tián', words: ['田地', '水田', '田野'] },
+  { char: '土', pinyin: 'tǔ', words: ['土地', '泥土', '国土'] },
+  { char: '木', pinyin: 'mù', words: ['树木', '木头', '木材'] },
+  { char: '花', pinyin: 'huā', words: ['花朵', '花园', '开花'] },
+  { char: '左', pinyin: 'zuǒ', words: ['左右', '左边', '左手'] },
+  { char: '右', pinyin: 'yòu', words: ['左右', '右边', '右手'] }
+];
+
+// ===== State =====
+let currentIndex = 0;
+let currentMode = 'view'; // 'view' | 'animate' | 'practice'
+let writer = null;
+let isQuizMode = false;
+let quizCompleted = false;
+
+// ===== DOM Elements =====
+const charMainEl = document.getElementById('char-main');
+const pinyinEl = document.getElementById('char-pinyin');
+const wordsEl = document.getElementById('char-words');
+const writerContainer = document.getElementById('writer-container');
+const modeLabel = document.getElementById('mode-label');
+const replayBtn = document.getElementById('replay-btn');
+const btnPrev = document.getElementById('btn-prev');
+const btnNext = document.getElementById('btn-next');
+const btnSound = document.getElementById('btn-sound');
+const btnMode = document.getElementById('btn-mode');
+const celebOverlay = document.getElementById('celebration-overlay');
+const celebCanvas = document.getElementById('celeb-canvas');
+const retryToast = document.getElementById('retry-toast');
+const progressCurrent = document.getElementById('progress-current');
+const progressTotal = document.getElementById('progress-total');
+const loadingScreen = document.getElementById('loading-screen');
+const celebNextBtn = document.getElementById('celeb-next-btn');
+
+// ===== Initialize =====
+progressTotal.textContent = CHARACTERS.length;
+
+function init() {
+  loadCharacter(0);
+  loadingScreen.classList.add('hidden');
+  setTimeout(() => { loadingScreen.style.display = 'none'; }, 500);
+}
+
+// ===== Load Character =====
+function loadCharacter(index) {
+  currentIndex = index;
+  const data = CHARACTERS[index];
+  quizCompleted = false;
+  isQuizMode = false;
+  currentMode = 'animate';
+
+  // Update display
+  charMainEl.textContent = data.char;
+  pinyinEl.textContent = data.pinyin;
+  progressCurrent.textContent = index + 1;
+
+  // Update words
+  wordsEl.innerHTML = '';
+  data.words.forEach(w => {
+    const chip = document.createElement('span');
+    chip.className = 'word-chip';
+    chip.textContent = w;
+    wordsEl.appendChild(chip);
+  });
+
+  // Update buttons
+  btnPrev.disabled = index === 0;
+  btnNext.disabled = index === CHARACTERS.length - 1;
+  btnMode.textContent = '我来写';
+  modeLabel.textContent = '看笔画';
+  modeLabel.classList.remove('active-practice');
+  replayBtn.style.display = 'flex';
+
+  // Create HanziWriter
+  createWriter(data.char, false);
+}
+
+// ===== Create HanziWriter =====
+function createWriter(char, isQuiz) {
+  writerContainer.innerHTML = '';
+
+  const cardEl = document.getElementById('action-card');
+  const cardSize = cardEl.offsetWidth || 340;
+  const writerSize = Math.min(cardSize * 0.85, 320);
+
+  try {
+    writer = HanziWriter.create('writer-container', char, {
+      width: writerSize,
+      height: writerSize,
+      padding: 20,
+      showOutline: true,
+      showCharacter: false,
+      strokeColor: COLORS.text,
+      outlineColor: COLORS.inputShadow,
+      drawingColor: COLORS.primary,
+      strokeAnimationSpeed: 1,
+      delayBetweenStrokes: 300,
+      drawingWidth: 4,
+      showHintAfterMisses: 3,
+      highlightOnComplete: true,
+      highlightColor: COLORS.primary,
+      charDataLoader: HanziWriter.loadCharacterData
+    });
+
+    if (!isQuiz) {
+      // Auto-play animation
+      setTimeout(() => {
+        if (writer) writer.animateCharacter({ strokeAnimationSpeed: 1 });
+      }, 300);
+    }
+
+    return writer;
+  } catch (e) {
+    console.error('HanziWriter error:', e);
+    writerContainer.innerHTML = '<div style="color:var(--kids-muted);font-size:14px;padding:20px;text-align:center;">加载笔画数据中...</div>';
+    return null;
+  }
+}
+
+// ===== Speech =====
+function speak(text, rate) {
+  if (!('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'zh-CN';
+  utterance.rate = rate || 0.8;
+  utterance.pitch = 1.1;
+
+  // Try to find a Chinese voice
+  const voices = window.speechSynthesis.getVoices();
+  const zhVoice = voices.find(v => v.lang.startsWith('zh')) || voices.find(v => v.lang.includes('CN'));
+  if (zhVoice) utterance.voice = zhVoice;
+
+  window.speechSynthesis.speak(utterance);
+}
+
+// Pre-load voices
+if ('speechSynthesis' in window) {
+  window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
+  window.speechSynthesis.getVoices();
+}
+
+// ===== Mode Switching =====
+function switchToPractice() {
+  const data = CHARACTERS[currentIndex];
+  isQuizMode = true;
+  currentMode = 'practice';
+  modeLabel.textContent = '我来写';
+  modeLabel.classList.add('active-practice');
+  replayBtn.style.display = 'none';
+  btnMode.textContent = '看笔画';
+
+  // Create quiz mode writer
+  writerContainer.innerHTML = '';
+  const cardEl = document.getElementById('action-card');
+  const cardSize = cardEl.offsetWidth || 340;
+  const writerSize = Math.min(cardSize * 0.85, 320);
+
+  try {
+    writer = HanziWriter.create('writer-container', data.char, {
+      width: writerSize,
+      height: writerSize,
+      padding: 20,
+      showOutline: true,
+      showCharacter: false,
+      strokeColor: COLORS.text,
+      outlineColor: COLORS.inputShadow,
+      drawingColor: COLORS.primary,
+      drawingWidth: 6,
+      showHintAfterMisses: 3,
+      highlightOnComplete: true,
+      highlightColor: COLORS.primary,
+      charDataLoader: HanziWriter.loadCharacterData
+    });
+
+    writer.quiz({
+      onCorrectStroke: function() {
+        // Small visual feedback - stroke is highlighted automatically
+      },
+      onMistake: function() {
+        showRetryToast();
+      },
+      onComplete: function(summary) {
+        if (summary.totalMistakes === 0 || summary.mistakes === undefined || (summary.totalMistakes / summary.totalStrokes) < 2) {
+          // Good job - celebrate
+          setTimeout(() => showCelebration(), 400);
+        } else {
+          // Too many mistakes - encourage retry
+          showRetryToast();
+          setTimeout(() => switchToPractice(), 2000);
+        }
+      }
+    });
+  } catch (e) {
+    console.error('Quiz mode error:', e);
+  }
+}
+
+function switchToAnimate() {
+  const data = CHARACTERS[currentIndex];
+  isQuizMode = false;
+  currentMode = 'animate';
+  modeLabel.textContent = '看笔画';
+  modeLabel.classList.remove('active-practice');
+  replayBtn.style.display = 'flex';
+  btnMode.textContent = '我来写';
+  createWriter(data.char, false);
+}
+
+// ===== Celebration =====
+function showCelebration() {
+  quizCompleted = true;
+  celebOverlay.classList.add('active');
+
+  // Speak encouragement
+  speak('小豆豆 你太棒了！', 0.9);
+
+  // Start particle animation
+  startCelebrationParticles();
+}
+
+function hideCelebration() {
+  celebOverlay.classList.remove('active');
+  stopCelebrationParticles();
+}
+
+// ===== Retry Toast =====
+function showRetryToast() {
+  retryToast.classList.add('show');
+  speak('小豆豆 加油啊', 0.9);
+  setTimeout(() => {
+    retryToast.classList.remove('show');
+  }, 2500);
+}
+
+// ===== Particle Celebration =====
+let particles = [];
+let particleAnimId = null;
+const ctx = celebCanvas.getContext('2d');
+
+function startCelebrationParticles() {
+  celebCanvas.width = window.innerWidth;
+  celebCanvas.height = window.innerHeight;
+  particles = [];
+
+  const colors = [COLORS.focus, COLORS.primary, COLORS.success, COLORS.pink, COLORS.purple, COLORS.blue, COLORS.orange, COLORS.red];
+
+  for (let i = 0; i < 60; i++) {
+    particles.push({
+      x: Math.random() * celebCanvas.width,
+      y: -20 - Math.random() * 200,
+      size: 4 + Math.random() * 8,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      speedX: (Math.random() - 0.5) * 3,
+      speedY: 2 + Math.random() * 4,
+      rotation: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 0.15,
+      shape: Math.random() > 0.5 ? 'star' : 'circle',
+      opacity: 0.8 + Math.random() * 0.2
+    });
+  }
+
+  animateParticles();
+}
+
+function animateParticles() {
+  ctx.clearRect(0, 0, celebCanvas.width, celebCanvas.height);
+
+  particles.forEach(p => {
+    p.x += p.speedX;
+    p.y += p.speedY;
+    p.rotation += p.rotSpeed;
+    p.speedY += 0.05; // gravity
+
+    if (p.y > celebCanvas.height + 20) {
+      p.y = -20;
+      p.x = Math.random() * celebCanvas.width;
+      p.speedY = 2 + Math.random() * 4;
+    }
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rotation);
+    ctx.globalAlpha = p.opacity;
+
+    if (p.shape === 'star') {
+      drawStar(ctx, 0, 0, 5, p.size, p.size * 0.5, p.color);
+    } else {
+      ctx.beginPath();
+      ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.fill();
+    }
+
+    ctx.restore();
+  });
+
+  particleAnimId = requestAnimationFrame(animateParticles);
+}
+
+function drawStar(ctx, cx, cy, spikes, outerR, innerR, color) {
+  let rot = Math.PI / 2 * 3;
+  let step = Math.PI / spikes;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - outerR);
+  for (let i = 0; i < spikes; i++) {
+    ctx.lineTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
+    rot += step;
+    ctx.lineTo(cx + Math.cos(rot) * innerR, cy + Math.sin(rot) * innerR);
+    rot += step;
+  }
+  ctx.lineTo(cx, cy - outerR);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function stopCelebrationParticles() {
+  if (particleAnimId) {
+    cancelAnimationFrame(particleAnimId);
+    particleAnimId = null;
+  }
+  ctx.clearRect(0, 0, celebCanvas.width, celebCanvas.height);
+  particles = [];
+}
+
+// ===== Event Listeners =====
+
+// Click character to hear pronunciation
+charMainEl.addEventListener('click', () => {
+  const data = CHARACTERS[currentIndex];
+  speak(data.char + '，' + data.words.join('、'), 0.75);
+});
+
+charMainEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    charMainEl.click();
+  }
+});
+
+// Sound button
+btnSound.addEventListener('click', () => {
+  const data = CHARACTERS[currentIndex];
+  speak(data.char + '，' + data.words.join('、'), 0.75);
+});
+
+// Mode toggle
+btnMode.addEventListener('click', () => {
+  if (isQuizMode) {
+    switchToAnimate();
+  } else {
+    switchToPractice();
+  }
+});
+
+// Replay
+replayBtn.addEventListener('click', () => {
+  if (writer && !isQuizMode) {
+    writer.animateCharacter({ strokeAnimationSpeed: 1 });
+  }
+});
+
+// Navigation
+btnPrev.addEventListener('click', () => {
+  if (currentIndex > 0) {
+    loadCharacter(currentIndex - 1);
+  }
+});
+
+btnNext.addEventListener('click', () => {
+  if (currentIndex < CHARACTERS.length - 1) {
+    loadCharacter(currentIndex + 1);
+  }
+});
+
+// Celebration next button
+celebNextBtn.addEventListener('click', () => {
+  hideCelebration();
+  if (currentIndex < CHARACTERS.length - 1) {
+    loadCharacter(currentIndex + 1);
+  } else {
+    // Finished all characters
+    speak('小豆豆 你好厉害 所有字都学完啦', 0.85);
+  }
+});
+
+// ===== Handle resize =====
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (isQuizMode) {
+      switchToPractice();
+    } else {
+      switchToAnimate();
+    }
+  }, 300);
+});
+
+// ===== Start =====
+window.addEventListener('load', () => {
+  // Wait a moment for hanzi-writer data to be available
+  setTimeout(init, 500);
+});
+</script>
+</body>
+</html>
