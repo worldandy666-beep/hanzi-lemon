@@ -866,26 +866,63 @@ function createWriter(char, isQuiz) {
   }
 }
 
-// ===== Speech (Dual Engine: Web Speech API + Google TTS Fallback) =====
+// ===== Speech (Mobile-Robust Triple Fallback) =====
 let voicesReady = false;
 let cachedVoices = [];
-let speechEngine = 'auto';
+let audioCtx = null;
+let persistentAudioEl = null;
 
+// --- Aggressive Audio Unlock ---
+function unlockAudio() {
+  // 1. Create / resume AudioContext
+  try {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    // Play tiny silent buffer to fully unlock audio hardware
+    const buf = audioCtx.createBuffer(1, 1, 22050);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(audioCtx.destination);
+    src.start(0);
+  } catch(e) {}
+
+  // 2. Warm up speech synthesis
+  if ('speechSynthesis' in window) {
+    try {
+      const s = new SpeechSynthesisUtterance('');
+      s.volume = 0;
+      window.speechSynthesis.speak(s);
+    } catch(e) {}
+  }
+
+  // 3. Create persistent hidden audio element (some mobile browsers handle this better)
+  if (!persistentAudioEl) {
+    persistentAudioEl = document.createElement('audio');
+    persistentAudioEl.preload = 'auto';
+    persistentAudioEl.style.display = 'none';
+    document.body.appendChild(persistentAudioEl);
+  }
+}
+// Unlock on EVERY interaction, not just the first one
+document.addEventListener('touchstart', unlockAudio, { passive: true });
+document.addEventListener('click', unlockAudio);
+document.addEventListener('keydown', unlockAudio);
+
+// --- Voice Loading ---
 function loadVoices() {
   if (!('speechSynthesis' in window)) return;
   cachedVoices = window.speechSynthesis.getVoices();
   if (cachedVoices.length > 0) voicesReady = true;
 }
-
 if ('speechSynthesis' in window) {
   loadVoices();
   window.speechSynthesis.onvoiceschanged = loadVoices;
-  let voiceRetries = 0;
-  const voiceInterval = setInterval(() => {
-    loadVoices();
-    voiceRetries++;
-    if (voicesReady || voiceRetries > 10) clearInterval(voiceInterval);
-  }, 300);
+  let vr = 0;
+  const vi = setInterval(() => { loadVoices(); vr++; if (voicesReady || vr > 20) clearInterval(vi); }, 200);
+  // Fallback: some browsers never fire onvoiceschanged
+  setTimeout(() => { if (!voicesReady) loadVoices(); }, 2000);
 }
 
 function getChineseVoice() {
@@ -893,75 +930,83 @@ function getChineseVoice() {
   return cachedVoices.find(v => v.lang === 'zh-CN')
     || cachedVoices.find(v => v.lang.startsWith('zh'))
     || cachedVoices.find(v => v.lang.includes('CN'))
+    || cachedVoices.find(v => v.lang === 'zh-TW')
     || null;
 }
 
-// Google Translate TTS fallback - works on all mobile browsers
+// --- Engine 1: Google TTS via AudioContext (most reliable on mobile) ---
 function speakViaGoogleTTS(text) {
   const url = 'https://translate.googleapis.com/translate_tts?ie=UTF-8&tl=zh-CN&client=tw-ob&q=' + encodeURIComponent(text);
-  const audio = new Audio(url);
-  audio.volume = 1.0;
-  const p = audio.play();
-  if (p !== undefined) {
-    p.catch(() => { setTimeout(() => { audio.play().catch(() => {}); }, 50); });
+
+  // Method A: AudioContext fetch + decode (works even when <audio> is blocked)
+  if (audioCtx) {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    fetch(url)
+      .then(r => r.arrayBuffer())
+      .then(data => audioCtx.decodeAudioData(data))
+      .then(decoded => {
+        const bufferSrc = audioCtx.createBufferSource();
+        bufferSrc.buffer = decoded;
+        bufferSrc.connect(audioCtx.destination);
+        bufferSrc.start(0);
+      })
+      .catch(() => {
+        // Method B: persistent hidden <audio> element
+        if (persistentAudioEl) {
+          persistentAudioEl.src = url;
+          persistentAudioEl.volume = 1.0;
+          const p = persistentAudioEl.play();
+          if (p) p.catch(() => {
+            // Method C: brand new Audio element as last resort
+            const a = new Audio(url);
+            a.volume = 1.0;
+            a.play().catch(() => {});
+          });
+        }
+      });
+  } else {
+    // No AudioContext — direct play
+    const a = new Audio(url);
+    a.volume = 1.0;
+    a.play().catch(() => {});
   }
 }
 
-// Web Speech API engine - returns true only if actually speaking with a Chinese voice
+// --- Engine 2: Web Speech API ---
 function speakViaWebSpeech(text, rate) {
   if (!('speechSynthesis' in window)) return false;
-  const voice = getChineseVoice();
-  if (!voice) return false; // No Chinese voice = fail, let fallback handle it
-
   window.speechSynthesis.cancel();
+  const voice = getChineseVoice();
+  // If no Chinese voice found, this engine can't help
+  if (!voice) return false;
+
   setTimeout(() => {
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'zh-CN';
     utterance.rate = rate || 0.8;
     utterance.pitch = 1.1;
     utterance.volume = 1.0;
-    if (voice) utterance.voice = voice;
+    utterance.voice = voice;
     if (window.speechSynthesis.paused) window.speechSynthesis.resume();
     window.speechSynthesis.speak(utterance);
+    // Chrome bug workaround: resume every 5s to prevent pausing
     const ri = setInterval(() => {
       if (!window.speechSynthesis.speaking) clearInterval(ri);
       else window.speechSynthesis.resume();
     }, 5000);
-  }, 100);
+  }, 50);
   return true;
 }
 
-// Main speak function - tries Web Speech first, falls back to Google TTS
+// --- Main speak: try Google TTS first (most reliable), then Web Speech ---
 function speak(text, rate) {
-  if (speechEngine === 'auto' || speechEngine === 'webspeech') {
-    const success = speakViaWebSpeech(text, rate);
-    if (success) { speechEngine = 'webspeech'; return; }
-    speechEngine = 'googletts';
-  }
+  // Always ensure audio is unlocked
+  unlockAudio();
+  // Try Google TTS first (works on virtually all mobile browsers)
   speakViaGoogleTTS(text);
+  // Also try Web Speech in parallel as backup
+  speakViaWebSpeech(text, rate);
 }
-
-// Unlock audio on first user interaction (mobile requirement)
-let audioUnlocked = false;
-function unlockAudio() {
-  if (audioUnlocked) return;
-  audioUnlocked = true;
-  if ('speechSynthesis' in window) {
-    const silent = new SpeechSynthesisUtterance('');
-    silent.volume = 0;
-    window.speechSynthesis.speak(silent);
-  }
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const buf = ctx.createBuffer(1, 1, 22050);
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.connect(ctx.destination);
-    src.start(0);
-  } catch(e) {}
-}
-document.addEventListener('touchstart', unlockAudio, { once: true });
-document.addEventListener('click', unlockAudio, { once: true });
 
 // ===== Mode Switching =====
 function switchToPractice() {
