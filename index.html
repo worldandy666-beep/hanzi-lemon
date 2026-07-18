@@ -876,11 +876,10 @@ function createWriter(char, isQuiz) {
   }
 }
 
-// ===== Speech (Web Speech API + Debug Panel) =====
-let voicesReady = false;
-let cachedVoices = [];
+// ===== Speech (Baidu TTS + Youdao Fallback + Web Speech API) =====
 let audioCtx = null;
 let debugLog = [];
+let persistentAudio = null;
 
 function addDebug(msg) {
   debugLog.push('[' + new Date().toLocaleTimeString() + '] ' + msg);
@@ -892,14 +891,9 @@ function updateDebugPanel() {
   const el = document.getElementById('debug-content');
   if (!el) return;
   const hasSynth = 'speechSynthesis' in window;
-  const voiceNames = cachedVoices.map(v => v.name + ' (' + v.lang + ')').join(', ') || '(none)';
-  const zhVoice = cachedVoices.find(v => v.lang.startsWith('zh'));
   let info = 'speechSynthesis: ' + hasSynth + '\n';
-  info += 'voicesReady: ' + voicesReady + '\n';
-  info += 'voiceCount: ' + cachedVoices.length + '\n';
-  info += 'voices: ' + voiceNames + '\n';
-  info += 'zhVoice: ' + (zhVoice ? zhVoice.name : 'NONE') + '\n';
   info += 'audioCtx: ' + (audioCtx ? audioCtx.state : 'null') + '\n';
+  info += 'engine: baidu -> youdao -> webspeech\n';
   info += '---log---\n' + debugLog.join('\n');
   el.textContent = info;
 }
@@ -923,53 +917,68 @@ function unlockAudio() {
   } catch(e) {
     addDebug('AudioContext error: ' + e.message);
   }
+  // Also create persistent audio element
+  if (!persistentAudio) {
+    persistentAudio = document.createElement('audio');
+    persistentAudio.preload = 'auto';
+    persistentAudio.style.display = 'none';
+    document.body.appendChild(persistentAudio);
+  }
 }
 document.addEventListener('touchstart', unlockAudio, { passive: true });
 document.addEventListener('click', unlockAudio);
 document.addEventListener('keydown', unlockAudio);
 
-// --- Voice Loading ---
-function loadVoices() {
-  if (!('speechSynthesis' in window)) return;
-  cachedVoices = window.speechSynthesis.getVoices();
-  if (cachedVoices.length > 0) {
-    voicesReady = true;
-    addDebug('Voices loaded: ' + cachedVoices.length);
+// --- Engine 1: Baidu Translate TTS (works in China) ---
+function speakViaBaidu(text) {
+  const url = 'https://fanyi.baidu.com/gettts?lan=zh&text=' + encodeURIComponent(text) + '&spd=3&source=web';
+  addDebug('Trying Baidu TTS...');
+  if (persistentAudio) {
+    persistentAudio.src = url;
+    persistentAudio.volume = 1.0;
+    const p = persistentAudio.play();
+    if (p) p.then(() => addDebug('Baidu TTS OK')).catch(() => {
+      addDebug('Baidu play failed, trying Youdao...');
+      speakViaYoudao(text);
+    });
+  } else {
+    const a = new Audio(url);
+    a.volume = 1.0;
+    a.play().then(() => addDebug('Baidu TTS OK')).catch(() => {
+      addDebug('Baidu failed, trying Youdao...');
+      speakViaYoudao(text);
+    });
   }
 }
-if ('speechSynthesis' in window) {
-  loadVoices();
-  window.speechSynthesis.onvoiceschanged = loadVoices;
-  let vr = 0;
-  const vi = setInterval(() => { loadVoices(); vr++; if (voicesReady || vr > 20) clearInterval(vi); }, 200);
-  setTimeout(() => { if (!voicesReady) { loadVoices(); addDebug('2s fallback: voices=' + cachedVoices.length); } }, 2000);
+
+// --- Engine 2: Youdao Dict TTS (works in China) ---
+function speakViaYoudao(text) {
+  const url = 'https://dict.youdao.com/dictvoice?audio=' + encodeURIComponent(text) + '&type=1';
+  addDebug('Trying Youdao TTS...');
+  const a = new Audio(url);
+  a.volume = 1.0;
+  a.play().then(() => addDebug('Youdao TTS OK')).catch(() => {
+    addDebug('Youdao failed, trying Web Speech...');
+    speakViaWebSpeech(text, 0.8);
+  });
 }
 
-function getBestVoice() {
-  if (cachedVoices.length === 0) cachedVoices = window.speechSynthesis.getVoices();
-  // Prefer Chinese, but accept ANY voice as fallback
-  return cachedVoices.find(v => v.lang === 'zh-CN')
-    || cachedVoices.find(v => v.lang.startsWith('zh'))
-    || cachedVoices.find(v => v.lang.includes('CN'))
-    || cachedVoices.find(v => v.lang === 'zh-TW')
-    || cachedVoices[0]  // Use whatever voice is available!
-    || null;
-}
-
-// --- Speak via Web Speech API ---
+// --- Engine 3: Web Speech API (if available) ---
 function speakViaWebSpeech(text, rate) {
   if (!('speechSynthesis' in window)) {
     addDebug('No speechSynthesis support');
     return false;
   }
   window.speechSynthesis.cancel();
-  const voice = getBestVoice();
+  const voices = window.speechSynthesis.getVoices();
+  const voice = voices.find(v => v.lang === 'zh-CN')
+    || voices.find(v => v.lang.startsWith('zh'))
+    || voices[0] || null;
   if (!voice) {
-    addDebug('No voice available at all!');
+    addDebug('No voice available');
     return false;
   }
-
-  addDebug('Speaking with: ' + voice.name + ' (' + voice.lang + ')');
+  addDebug('Web Speech: ' + voice.name + ' (' + voice.lang + ')');
   setTimeout(() => {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = voice.lang;
@@ -979,26 +988,19 @@ function speakViaWebSpeech(text, rate) {
     u.voice = voice;
     u.onend = () => addDebug('Speech ended OK');
     u.onerror = (e) => addDebug('Speech error: ' + e.error);
-    if (window.speechSynthesis.paused) window.speechSynthesis.resume();
     window.speechSynthesis.speak(u);
-    // Chrome bug workaround
-    const ri = setInterval(() => {
-      if (!window.speechSynthesis.speaking) clearInterval(ri);
-      else window.speechSynthesis.resume();
-    }, 5000);
   }, 50);
   return true;
 }
 
 // --- Main speak function ---
 function speak(text, rate) {
-  addDebug('speak() called: "' + text.substring(0, 20) + '"');
+  addDebug('speak(): "' + text.substring(0, 20) + '"');
   unlockAudio();
-  const ok = speakViaWebSpeech(text, rate);
-  if (!ok) addDebug('speak failed - no voice available');
+  speakViaBaidu(text);
 }
 
-// --- Debug Panel: show on triple-tap of title ---
+// --- Debug Panel ---
 let tapCount = 0, tapTimer = null;
 document.querySelector('.app-title').addEventListener('click', () => {
   tapCount++;
@@ -1011,13 +1013,11 @@ document.querySelector('.app-title').addEventListener('click', () => {
     updateDebugPanel();
   }
 });
-// Debug test button
 document.getElementById('debug-test-btn').addEventListener('click', () => {
-  addDebug('--- TEST BUTTON PRESSED ---');
+  addDebug('--- TEST BUTTON ---');
   unlockAudio();
   speak('你好', 0.8);
 });
-// Initial debug info
 setTimeout(updateDebugPanel, 3000);
 
 // ===== Mode Switching =====
