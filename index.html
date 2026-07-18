@@ -907,11 +907,11 @@ function speakViaGoogleTTS(text) {
   }
 }
 
-// Web Speech API engine
+// Web Speech API engine - returns true only if actually speaking with a Chinese voice
 function speakViaWebSpeech(text, rate) {
   if (!('speechSynthesis' in window)) return false;
   const voice = getChineseVoice();
-  if (!voice && !voicesReady) return false;
+  if (!voice) return false; // No Chinese voice = fail, let fallback handle it
 
   window.speechSynthesis.cancel();
   setTimeout(() => {
