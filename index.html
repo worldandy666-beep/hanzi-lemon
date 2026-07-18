@@ -631,6 +631,16 @@ body::before {
   </div>
 </header>
 
+<!-- Debug Panel (temporary, for sound troubleshooting) -->
+<div id="debug-panel" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;background:#222;color:#0f0;font:11px/1.4 monospace;padding:6px 10px;max-height:40vh;overflow:auto;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+    <strong style="color:#ff0;">语音调试面板</strong>
+    <button onclick="this.parentElement.parentElement.style.display='none'" style="background:#600;color:#fff;border:none;padding:2px 8px;font-size:11px;border-radius:3px;">关闭</button>
+  </div>
+  <div id="debug-content">加载中...</div>
+  <button id="debug-test-btn" style="margin-top:6px;background:#06a;color:#fff;border:none;padding:4px 12px;font-size:12px;border-radius:3px;cursor:pointer;">测试声音：你好</button>
+</div>
+
 <!-- Main Content -->
 <main class="main-content" data-component="main-learning">
   <!-- Character Display -->
@@ -866,46 +876,54 @@ function createWriter(char, isQuiz) {
   }
 }
 
-// ===== Speech (Mobile-Robust Triple Fallback) =====
+// ===== Speech (Web Speech API + Debug Panel) =====
 let voicesReady = false;
 let cachedVoices = [];
 let audioCtx = null;
-let persistentAudioEl = null;
+let debugLog = [];
 
-// --- Aggressive Audio Unlock ---
+function addDebug(msg) {
+  debugLog.push('[' + new Date().toLocaleTimeString() + '] ' + msg);
+  if (debugLog.length > 30) debugLog.shift();
+  updateDebugPanel();
+}
+
+function updateDebugPanel() {
+  const el = document.getElementById('debug-content');
+  if (!el) return;
+  const hasSynth = 'speechSynthesis' in window;
+  const voiceNames = cachedVoices.map(v => v.name + ' (' + v.lang + ')').join(', ') || '(none)';
+  const zhVoice = cachedVoices.find(v => v.lang.startsWith('zh'));
+  let info = 'speechSynthesis: ' + hasSynth + '\n';
+  info += 'voicesReady: ' + voicesReady + '\n';
+  info += 'voiceCount: ' + cachedVoices.length + '\n';
+  info += 'voices: ' + voiceNames + '\n';
+  info += 'zhVoice: ' + (zhVoice ? zhVoice.name : 'NONE') + '\n';
+  info += 'audioCtx: ' + (audioCtx ? audioCtx.state : 'null') + '\n';
+  info += '---log---\n' + debugLog.join('\n');
+  el.textContent = info;
+}
+
+// --- Audio Unlock ---
 function unlockAudio() {
-  // 1. Create / resume AudioContext
   try {
     if (!audioCtx) {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      addDebug('AudioContext created: ' + audioCtx.state);
     }
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    // Play tiny silent buffer to fully unlock audio hardware
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+      addDebug('AudioContext resumed');
+    }
     const buf = audioCtx.createBuffer(1, 1, 22050);
     const src = audioCtx.createBufferSource();
     src.buffer = buf;
     src.connect(audioCtx.destination);
     src.start(0);
-  } catch(e) {}
-
-  // 2. Warm up speech synthesis
-  if ('speechSynthesis' in window) {
-    try {
-      const s = new SpeechSynthesisUtterance('');
-      s.volume = 0;
-      window.speechSynthesis.speak(s);
-    } catch(e) {}
-  }
-
-  // 3. Create persistent hidden audio element (some mobile browsers handle this better)
-  if (!persistentAudioEl) {
-    persistentAudioEl = document.createElement('audio');
-    persistentAudioEl.preload = 'auto';
-    persistentAudioEl.style.display = 'none';
-    document.body.appendChild(persistentAudioEl);
+  } catch(e) {
+    addDebug('AudioContext error: ' + e.message);
   }
 }
-// Unlock on EVERY interaction, not just the first one
 document.addEventListener('touchstart', unlockAudio, { passive: true });
 document.addEventListener('click', unlockAudio);
 document.addEventListener('keydown', unlockAudio);
@@ -914,82 +932,56 @@ document.addEventListener('keydown', unlockAudio);
 function loadVoices() {
   if (!('speechSynthesis' in window)) return;
   cachedVoices = window.speechSynthesis.getVoices();
-  if (cachedVoices.length > 0) voicesReady = true;
+  if (cachedVoices.length > 0) {
+    voicesReady = true;
+    addDebug('Voices loaded: ' + cachedVoices.length);
+  }
 }
 if ('speechSynthesis' in window) {
   loadVoices();
   window.speechSynthesis.onvoiceschanged = loadVoices;
   let vr = 0;
   const vi = setInterval(() => { loadVoices(); vr++; if (voicesReady || vr > 20) clearInterval(vi); }, 200);
-  // Fallback: some browsers never fire onvoiceschanged
-  setTimeout(() => { if (!voicesReady) loadVoices(); }, 2000);
+  setTimeout(() => { if (!voicesReady) { loadVoices(); addDebug('2s fallback: voices=' + cachedVoices.length); } }, 2000);
 }
 
-function getChineseVoice() {
+function getBestVoice() {
   if (cachedVoices.length === 0) cachedVoices = window.speechSynthesis.getVoices();
+  // Prefer Chinese, but accept ANY voice as fallback
   return cachedVoices.find(v => v.lang === 'zh-CN')
     || cachedVoices.find(v => v.lang.startsWith('zh'))
     || cachedVoices.find(v => v.lang.includes('CN'))
     || cachedVoices.find(v => v.lang === 'zh-TW')
+    || cachedVoices[0]  // Use whatever voice is available!
     || null;
 }
 
-// --- Engine 1: Google TTS via AudioContext (most reliable on mobile) ---
-function speakViaGoogleTTS(text) {
-  const url = 'https://translate.googleapis.com/translate_tts?ie=UTF-8&tl=zh-CN&client=tw-ob&q=' + encodeURIComponent(text);
-
-  // Method A: AudioContext fetch + decode (works even when <audio> is blocked)
-  if (audioCtx) {
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    fetch(url)
-      .then(r => r.arrayBuffer())
-      .then(data => audioCtx.decodeAudioData(data))
-      .then(decoded => {
-        const bufferSrc = audioCtx.createBufferSource();
-        bufferSrc.buffer = decoded;
-        bufferSrc.connect(audioCtx.destination);
-        bufferSrc.start(0);
-      })
-      .catch(() => {
-        // Method B: persistent hidden <audio> element
-        if (persistentAudioEl) {
-          persistentAudioEl.src = url;
-          persistentAudioEl.volume = 1.0;
-          const p = persistentAudioEl.play();
-          if (p) p.catch(() => {
-            // Method C: brand new Audio element as last resort
-            const a = new Audio(url);
-            a.volume = 1.0;
-            a.play().catch(() => {});
-          });
-        }
-      });
-  } else {
-    // No AudioContext — direct play
-    const a = new Audio(url);
-    a.volume = 1.0;
-    a.play().catch(() => {});
-  }
-}
-
-// --- Engine 2: Web Speech API ---
+// --- Speak via Web Speech API ---
 function speakViaWebSpeech(text, rate) {
-  if (!('speechSynthesis' in window)) return false;
+  if (!('speechSynthesis' in window)) {
+    addDebug('No speechSynthesis support');
+    return false;
+  }
   window.speechSynthesis.cancel();
-  const voice = getChineseVoice();
-  // If no Chinese voice found, this engine can't help
-  if (!voice) return false;
+  const voice = getBestVoice();
+  if (!voice) {
+    addDebug('No voice available at all!');
+    return false;
+  }
 
+  addDebug('Speaking with: ' + voice.name + ' (' + voice.lang + ')');
   setTimeout(() => {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'zh-CN';
-    utterance.rate = rate || 0.8;
-    utterance.pitch = 1.1;
-    utterance.volume = 1.0;
-    utterance.voice = voice;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = voice.lang;
+    u.rate = rate || 0.8;
+    u.pitch = 1.1;
+    u.volume = 1.0;
+    u.voice = voice;
+    u.onend = () => addDebug('Speech ended OK');
+    u.onerror = (e) => addDebug('Speech error: ' + e.error);
     if (window.speechSynthesis.paused) window.speechSynthesis.resume();
-    window.speechSynthesis.speak(utterance);
-    // Chrome bug workaround: resume every 5s to prevent pausing
+    window.speechSynthesis.speak(u);
+    // Chrome bug workaround
     const ri = setInterval(() => {
       if (!window.speechSynthesis.speaking) clearInterval(ri);
       else window.speechSynthesis.resume();
@@ -998,15 +990,35 @@ function speakViaWebSpeech(text, rate) {
   return true;
 }
 
-// --- Main speak: try Google TTS first (most reliable), then Web Speech ---
+// --- Main speak function ---
 function speak(text, rate) {
-  // Always ensure audio is unlocked
+  addDebug('speak() called: "' + text.substring(0, 20) + '"');
   unlockAudio();
-  // Try Google TTS first (works on virtually all mobile browsers)
-  speakViaGoogleTTS(text);
-  // Also try Web Speech in parallel as backup
-  speakViaWebSpeech(text, rate);
+  const ok = speakViaWebSpeech(text, rate);
+  if (!ok) addDebug('speak failed - no voice available');
 }
+
+// --- Debug Panel: show on triple-tap of title ---
+let tapCount = 0, tapTimer = null;
+document.querySelector('.app-title').addEventListener('click', () => {
+  tapCount++;
+  clearTimeout(tapTimer);
+  tapTimer = setTimeout(() => { tapCount = 0; }, 500);
+  if (tapCount >= 3) {
+    tapCount = 0;
+    const panel = document.getElementById('debug-panel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    updateDebugPanel();
+  }
+});
+// Debug test button
+document.getElementById('debug-test-btn').addEventListener('click', () => {
+  addDebug('--- TEST BUTTON PRESSED ---');
+  unlockAudio();
+  speak('你好', 0.8);
+});
+// Initial debug info
+setTimeout(updateDebugPanel, 3000);
 
 // ===== Mode Switching =====
 function switchToPractice() {
