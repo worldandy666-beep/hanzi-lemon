@@ -1130,9 +1130,10 @@ function playLocalAudio(url) {
 }
 
 // --- Engine 2: Baidu TTS fallback ---
-function speakViaBaidu(text) {
-  const url = 'https://fanyi.baidu.com/gettts?lan=zh&text=' + encodeURIComponent(text) + '&spd=3&source=web';
-  addDebug('Baidu TTS fallback...');
+function speakViaBaidu(text, spd) {
+  const speed = spd || 3;
+  const url = 'https://fanyi.baidu.com/gettts?lan=zh&text=' + encodeURIComponent(text) + '&spd=' + speed + '&source=web';
+  addDebug('Baidu TTS fallback (spd=' + speed + ')...');
   const a = new Audio(url);
   a.volume = 1.0;
   const p = a.play();
@@ -1161,14 +1162,14 @@ function speak(text, rate) {
     playLocalAudio('audio/' + text + '.mp3').catch(() => speakViaBaidu(text));
     return;
   }
-  // Praise phrase
+  // Praise phrase - use Baidu TTS at faster speed (local files too slow)
   if (text.includes('太棒了') || text.includes('你太棒')) {
-    playLocalAudio('audio/praise.mp3').catch(() => speakViaBaidu(text));
+    speakViaBaidu(text, 6);
     return;
   }
-  // Encouragement phrase
+  // Encouragement phrase - use Baidu TTS at faster speed
   if (text.includes('加油')) {
-    playLocalAudio('audio/encourage.mp3').catch(() => speakViaBaidu(text));
+    speakViaBaidu(text, 6);
     return;
   }
   // Longer text starting with a known character - play character audio
